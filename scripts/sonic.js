@@ -1,5 +1,5 @@
 require("dotenv").config();
-const ethers = require("ethers");
+const { ethers } = require("ethers");  // Fixed import
 const colors = require("colors");
 const readline = require("readline");
 
@@ -15,10 +15,9 @@ const EXPLORER_URL = "https://sonicscan.org/tx/";
 // Contract addresses
 const WS_TOKEN_ADDRESS = "0x039e2fB66102314Ce7b64Ce5Ce3E5183bc94aD38";
 const LENDING_POOL_ADDRESS = "0x5362dBb1e601abF3a4c14c22ffEdA64042E5eAA3";
-const ASONWS_TOKEN_ADDRESS = "0x6C5E14A212c1C3e4Baf6f871ac9B1a969918c131";
 
 // Gas settings
-const GAS_LIMIT = 350000; // Increased for Aave protocol complexity
+const GAS_LIMIT = 350000;
 const MAX_RETRIES = 3;
 const MIN_STAKE_AMOUNT = ethers.utils.parseEther("0.01");
 const MAX_STAKE_AMOUNT = ethers.utils.parseEther("0.05");
@@ -32,23 +31,16 @@ const wallet = new ethers.Wallet(process.env.PRIVATE_KEY, provider);
 // Contract ABIs
 const LENDING_POOL_ABI = [
   "function deposit(address asset, uint256 amount, address onBehalfOf, uint16 referralCode) external",
-  "function withdraw(address asset, uint256 amount, address to) external returns (uint256)",
-  "function getReserveData(address asset) external view returns (tuple(uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint40,address,address,address,address,uint8))"
+  "function withdraw(address asset, uint256 amount, address to) external returns (uint256)"
 ];
 
 const WS_TOKEN_ABI = [
   "function approve(address spender, uint256 amount) external returns (bool)",
-  "function balanceOf(address account) external view returns (uint256)",
-  "function allowance(address owner, address spender) external view returns (uint256)"
-];
-
-const ASONWS_TOKEN_ABI = [
   "function balanceOf(address account) external view returns (uint256)"
 ];
 
 const lendingPool = new ethers.Contract(LENDING_POOL_ADDRESS, LENDING_POOL_ABI, wallet);
 const wsToken = new ethers.Contract(WS_TOKEN_ADDRESS, WS_TOKEN_ABI, wallet);
-const aSonWsToken = new ethers.Contract(ASONWS_TOKEN_ADDRESS, ASONWS_TOKEN_ABI, wallet);
 
 const rl = readline.createInterface({
   input: process.stdin,
@@ -59,16 +51,15 @@ const rl = readline.createInterface({
 // UTILITY FUNCTIONS
 // ======================
 function getRandomAmount() {
-  const randomAmount = Math.random() * 
-    (parseFloat(ethers.utils.formatEther(MAX_STAKE_AMOUNT)) - 
-     parseFloat(ethers.utils.formatEther(MIN_STAKE_AMOUNT))) + 
-    parseFloat(ethers.utils.formatEther(MIN_STAKE_AMOUNT));
+  const min = parseFloat(ethers.utils.formatEther(MIN_STAKE_AMOUNT));
+  const max = parseFloat(ethers.utils.formatEther(MAX_STAKE_AMOUNT));
+  const randomAmount = Math.random() * (max - min) + min;
   return ethers.utils.parseEther(randomAmount.toFixed(4));
 }
 
 function getRandomDelay() {
-  const minDelay = 1 * 60 * 1000; // 1 minute
-  const maxDelay = 3 * 60 * 1000; // 3 minutes
+  const minDelay = 1 * 60 * 1000;
+  const maxDelay = 3 * 60 * 1000;
   return Math.floor(Math.random() * (maxDelay - minDelay + 1) + minDelay);
 }
 
@@ -93,10 +84,8 @@ async function getCurrentGasFees() {
 async function checkApproval() {
   try {
     const allowance = await wsToken.allowance(wallet.address, LENDING_POOL_ADDRESS);
-    const minApproval = ethers.utils.parseEther("10"); // Approve 10 WS by default
-    
-    if (allowance.lt(minApproval)) {
-      console.log("⏳ Approving wS tokens for staking...".yellow);
+    if (allowance.lt(ethers.utils.parseEther("1"))) {
+      console.log("⏳ Approving wS tokens...".yellow);
       const tx = await wsToken.approve(
         LENDING_POOL_ADDRESS,
         ethers.constants.MaxUint256,
@@ -106,37 +95,23 @@ async function checkApproval() {
       console.log("✔️ Approval successful".green);
     }
   } catch (error) {
-    console.error("❌ Approval check failed:".red, error.message);
-    throw error;
-  }
-}
-
-async function checkReserveStatus() {
-  try {
-    const reserveData = await lendingPool.getReserveData(WS_TOKEN_ADDRESS);
-    const isActive = reserveData[0] > 0; // Check if liquidity is available
-    if (!isActive) throw new Error("Reserve is not active");
-    return reserveData;
-  } catch (error) {
-    console.error("❌ Reserve status check failed:".red, error.message);
+    console.error("❌ Approval failed:".red, error.message);
     throw error;
   }
 }
 
 async function checkBalances() {
   try {
-    const [ethBalance, wsBalance, aSonWsBalance] = await Promise.all([
+    const [ethBalance, wsBalance] = await Promise.all([
       provider.getBalance(wallet.address),
-      wsToken.balanceOf(wallet.address),
-      aSonWsToken.balanceOf(wallet.address)
+      wsToken.balanceOf(wallet.address)
     ]);
     
     console.log("\nCurrent Balances:".cyan);
     console.log(`- ETH: ${ethers.utils.formatEther(ethBalance)}`.cyan);
     console.log(`- wS: ${ethers.utils.formatEther(wsBalance)}`.cyan);
-    console.log(`- aSonwS: ${ethers.utils.formatEther(aSonWsBalance)}`.cyan);
     
-    return { ethBalance, wsBalance, aSonWsBalance };
+    return { ethBalance, wsBalance };
   } catch (error) {
     console.error("❌ Balance check failed:".red, error.message);
     throw error;
@@ -153,7 +128,7 @@ async function withRetry(operation, maxRetries = MAX_RETRIES) {
       if (attempts >= maxRetries) throw error;
       
       const delayTime = Math.pow(2, attempts) * 1000;
-      console.log(`⏳ Retrying in ${delayTime/1000}s... (Attempt ${attempts}/${maxRetries})`.yellow);
+      console.log(`⏳ Retrying in ${delayTime/1000}s... (${attempts}/${maxRetries})`.yellow);
       await delay(delayTime);
     }
   }
@@ -164,28 +139,25 @@ async function withRetry(operation, maxRetries = MAX_RETRIES) {
 // ======================
 async function supplyWS(cycleNumber) {
   return withRetry(async () => {
-    console.log(`\n[Cycle ${cycleNumber}] Preparing to stake wS...`.magenta);
+    console.log(`\n[Cycle ${cycleNumber}] Preparing to stake...`.magenta);
 
     await checkApproval();
-    await checkReserveStatus();
     const { wsBalance, ethBalance } = await checkBalances();
     const stakeAmount = getRandomAmount();
     
-    console.log(`Random stake amount: ${ethers.utils.formatEther(stakeAmount)} wS`);
+    console.log(`Amount: ${ethers.utils.formatEther(stakeAmount)} wS`);
 
     if (wsBalance.lt(stakeAmount)) {
-      throw new Error("Insufficient wS balance for staking");
+      throw new Error("Insufficient wS balance");
     }
 
-    // Check ETH balance for gas (conservative estimate)
-    const minEthRequired = ethers.utils.parseEther("0.01");
-    if (ethBalance.lt(minEthRequired)) {
-      throw new Error("Insufficient ETH for gas fees");
+    const minEth = ethers.utils.parseEther("0.01");
+    if (ethBalance.lt(minEth)) {
+      throw new Error("Insufficient ETH for gas");
     }
 
     const { maxFeePerGas, maxPriorityFeePerGas } = await getCurrentGasFees();
 
-    // Execute deposit to lending pool
     const tx = await lendingPool.deposit(
       WS_TOKEN_ADDRESS,
       stakeAmount,
@@ -198,14 +170,14 @@ async function supplyWS(cycleNumber) {
       }
     );
 
-    console.log(`🔄 Sending stake transaction: ${EXPLORER_URL}${tx.hash}`.yellow);
+    console.log(`🔄 Tx sent: ${EXPLORER_URL}${tx.hash}`.yellow);
     const receipt = await tx.wait();
 
     if (receipt.status === 0) {
       throw new Error("Transaction reverted");
     }
 
-    console.log(`✔️ Stake successful in block ${receipt.blockNumber}`.green.underline);
+    console.log(`✔️ Staked in block ${receipt.blockNumber}`.green);
     return { receipt, stakeAmount };
   });
 }
@@ -213,15 +185,9 @@ async function supplyWS(cycleNumber) {
 async function withdrawWS(cycleNumber) {
   return withRetry(async () => {
     console.log(`\n[Cycle ${cycleNumber}] Preparing to unstake...`.magenta);
-    
-    const { aSonWsBalance } = await checkBalances();
-    if (aSonWsBalance.lte(0)) {
-      throw new Error("No aSonwS tokens to unstake");
-    }
 
     const { maxFeePerGas, maxPriorityFeePerGas } = await getCurrentGasFees();
 
-    // Execute withdraw from lending pool (max amount)
     const tx = await lendingPool.withdraw(
       WS_TOKEN_ADDRESS,
       ethers.constants.MaxUint256, // Withdraw all
@@ -233,14 +199,14 @@ async function withdrawWS(cycleNumber) {
       }
     );
 
-    console.log(`🔄 Sending unstake transaction: ${EXPLORER_URL}${tx.hash}`.yellow);
+    console.log(`🔄 Tx sent: ${EXPLORER_URL}${tx.hash}`.yellow);
     const receipt = await tx.wait();
 
     if (receipt.status === 0) {
       throw new Error("Transaction reverted");
     }
 
-    console.log(`✔️ Unstake successful in block ${receipt.blockNumber}`.green.underline);
+    console.log(`✔️ Unstaked in block ${receipt.blockNumber}`.green);
     return receipt;
   });
 }
@@ -250,56 +216,50 @@ async function withdrawWS(cycleNumber) {
 // ======================
 async function main() {
   try {
-    console.log("🚀 Starting wS Staking operations...".green.bold);
-    console.log(`📌 Using wallet: ${wallet.address}`.yellow);
-    console.log(`📌 wS Token: ${WS_TOKEN_ADDRESS}`.yellow);
-    console.log(`📌 Lending Pool: ${LENDING_POOL_ADDRESS}`.yellow);
+    console.log("🚀 Starting Sonic Staking Bot".green.bold);
+    console.log(`📌 Wallet: ${wallet.address}`.yellow);
 
     const cycleCount = await new Promise((resolve) => {
-      rl.question("How many staking cycles would you like to run? ", (answer) => {
+      rl.question("How many cycles to run? ", (answer) => {
         resolve(parseInt(answer) || 1);
       });
     });
 
-    console.log(`🔄 Running ${cycleCount} cycles...`.yellow);
-
     for (let i = 1; i <= cycleCount; i++) {
       try {
-        console.log(`\n=== Starting Cycle ${i} ===`.magenta.bold);
-        const { stakeAmount } = await supplyWS(i);
-
+        console.log(`\n=== Cycle ${i} ===`.magenta.bold);
+        await supplyWS(i);
+        
         const delayTime = getRandomDelay();
-        console.log(`⏳ Waiting for ${delayTime / 1000} seconds before unstaking...`.cyan);
+        console.log(`⏳ Waiting ${delayTime/1000}s...`.cyan);
         await delay(delayTime);
-
+        
         await withdrawWS(i);
-        console.log(`=== Cycle ${i} completed successfully! ===`.magenta.bold);
+        console.log(`=== Completed ===`.magenta.bold);
       } catch (error) {
         console.error(`❌ Cycle ${i} failed:`.red, error.message);
       }
 
       if (i < cycleCount) {
         const interCycleDelay = getRandomDelay();
-        console.log(`\n⏳ Waiting ${interCycleDelay / 1000} seconds before next cycle...`.cyan);
+        console.log(`\n⏳ Waiting ${interCycleDelay/1000}s between cycles...`.cyan);
         await delay(interCycleDelay);
       }
     }
 
-    console.log(`\n🎉 All ${cycleCount} cycles completed!`.green.bold);
+    console.log(`\n🎉 All done!`.green.bold);
   } catch (error) {
-    console.error("💥 Operation failed:".red.bold, error.message);
+    console.error("💥 Fatal error:".red.bold, error.message);
   } finally {
     rl.close();
     process.exit(0);
   }
 }
 
-// Handle process termination
-process.on("SIGINT", async () => {
-  console.log("\n🛑 Received shutdown signal. Gracefully terminating...".yellow);
+process.on("SIGINT", () => {
+  console.log("\n🛑 Shutting down...".yellow);
   rl.close();
   process.exit(0);
 });
 
-// Start the program
 main();
