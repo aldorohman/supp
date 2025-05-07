@@ -1,12 +1,12 @@
 require('dotenv').config();
-const { ethers } = require('ethers');
+const { ethers } = require('ethers'); // Corrected import
 const colors = require('colors');
 const readline = require('readline');
 
 // Initialize colors
 colors.enable();
 
-// Configuration
+// Configuration - moved before any ethers.utils usage
 const config = {
   RPC_URL: "https://rpc.soniclabs.com",
   EXPLORER_URL: "https://sonicscan.org/tx/",
@@ -14,8 +14,8 @@ const config = {
   LENDING_POOL_ADDRESS: "0x5362dBb1e601abF3a4c14c22ffEdA64042E5eAA3",
   GAS_LIMIT: 350000,
   MAX_RETRIES: 3,
-  MIN_STAKE: ethers.utils.parseEther("0.01"),
-  MAX_STAKE: ethers.utils.parseEther("0.05")
+  get MIN_STAKE() { return ethers.utils.parseEther("0.01") }, // Fixed initialization
+  get MAX_STAKE() { return ethers.utils.parseEther("0.05") } // Fixed initialization
 };
 
 // Initialize provider and wallet
