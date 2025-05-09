@@ -8,6 +8,7 @@ const availableScripts = [
   { title: "Izumi Swap Script", value: "izumi" },
   { title: "aPriori Staking Script", value: "apriori" },
   { title: "sonic Staking Script", value: "sonic" },
+  { title: "os Staking Script", value: "os" },
   { title: "Exit", value: "exit" },
 ];
 
@@ -40,6 +41,11 @@ async function run() {
     case "sonic":
       console.log("Running sonic...");
       const sonic = require("./scripts/sonic");
+      break;
+
+	case "os":
+      console.log("Running os...");
+      const os = require("./scripts/os");
       break;
   
     case "izumi":
